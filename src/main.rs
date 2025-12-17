@@ -10,56 +10,106 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use rand::{rng, Rng};
 use tokio::time::Instant;
-use wreq::cookie::{Cookie, CookieStore};
+use wreq::cookie::{Cookie, CookieStore, Jar};
 use wreq::redirect::Policy;
-use wreq::{Proxy, Uri, cookie, head, header};
+use wreq::{Proxy, Uri, cookie, head, header, Client};
 use wreq_util::Emulation;
 
 #[derive(Clone, Debug, Deserialize)]
 struct RunRequest {
     url: String,
     method: String,
+    #[serde(default)]
     data: String,
     headers: HashMap<String, String>,
     proxy: String,
     timeout: i32,
 }
 
-async fn forward(payload: RunRequest) -> Result<serde_json::Value, anyhow::Error> {
+fn random_meu() -> Emulation {
+let c = vec![
+    Emulation::Chrome142,
+    Emulation::Chrome141,
+    Emulation::Chrome140,
+    Emulation::Chrome139,
+    Emulation::Chrome138,
+    Emulation::Chrome137,
+    Emulation::Chrome136,
+    Emulation::Chrome135,
+    Emulation::Chrome134,
+    Emulation::Chrome133,
+    Emulation::Chrome132,
+    Emulation::Chrome131,
+    Emulation::Chrome130,
+    Emulation::Chrome129,
+    Emulation::Chrome128,
+    Emulation::Chrome127,
+    Emulation::Chrome126,
+    Emulation::Chrome124,
+    // Emulation::Chrome123,
+    // Emulation::Chrome120,
+    // Emulation::Chrome119,
+    // Emulation::Chrome118,
+    // Emulation::Chrome117,
+    // Emulation::Chrome116,
+    // Emulation::Chrome114,
+    // Emulation::Chrome110,
+    // Emulation::Chrome109,
+    // Emulation::Chrome108,
+    // Emulation::Chrome107,
+    // Emulation::Chrome106,
+    // Emulation::Chrome105,
+    // Emulation::Chrome104,
+    // Emulation::Chrome101,
+    // Emulation::Chrome100
+];;
+    let i = rng().random_range(0..c.len());
+    c[i]
+}
+pub fn create_client(proxy: String) -> (Client, Arc<Jar>, Emulation) {
     let jar = Arc::new(cookie::Jar::default());
-    let url = payload.url.clone();
-    let data = payload.data.clone().leak();
-
-    let uri = Uri::from_static(url.clone().leak());
-    let hs = payload.headers.clone();
-    let client = wreq::Client::builder()
-        .emulation(Emulation::Chrome141)
-        .proxy(Proxy::all(payload.proxy).unwrap())
+    let emu = random_meu();
+    println!("emu {:?}", emu);
+    (wreq::Client::builder()
+        .emulation(emu)
+        .proxy(Proxy::all(proxy).unwrap())
         .cert_verification(false)
         .cookie_provider(jar.clone())
         .redirect(Policy::default())
         .brotli(true)
         .timeout(Duration::from_secs(10))
-        .build()?;
+        .build().unwrap(), jar, emu)
+}
+async fn forward(payload: RunRequest) -> Result<serde_json::Value, anyhow::Error> {
+    let url = payload.url.clone();
+    let data = payload.data.clone().leak();
+
+    let uri = Uri::from_static(url.clone().leak());
+    let hs = payload.headers.clone();
+    println!("{:?}", hs);
+    let (client,jar, emu) =  create_client(payload.proxy);
     let mut headers = header::HeaderMap::new();
     hs.into_iter().for_each(|(k, v)| {
+        println!("{} {}", k,v);
         headers.insert(
             header::HeaderName::from_static(k.to_lowercase().leak()),
             header::HeaderValue::from_str(v.as_str()).unwrap(),
         );
     });
-    println!("headers {:?}", headers);
     let resp = match payload.method.to_uppercase().as_str() {
         "GET" => client
             .get(url.clone())
             .headers(headers)
+            .brotli(true)
             .send()
             .await?,
         "POST" => client
             .post(url.clone())
             .headers(headers)
             .body(data.as_bytes())
+            .brotli(true)
             .send()
             .await?,
         _ => {
@@ -97,12 +147,14 @@ async fn forward(payload: RunRequest) -> Result<serde_json::Value, anyhow::Error
             (c[0..i].to_string(), c[i + 1..c.len()].to_string())
         })
         .collect::<HashMap<String, String>>();
+    let emu = format!("{:?}", emu);
     Ok(json!({
         "code": 0,
         "text": body,
         "status_code": status.as_u16(),
         "headers": resp_headers,
         "cookies": cookies,
+        "tls": emu,
     }))
 }
 async fn handler(Json(payload): Json<RunRequest>) -> String {
@@ -130,12 +182,6 @@ async fn create_user(Json(user): Json<User>) -> String {
 }
 #[tokio::main] // 这里是 MultiThread Runtime，适合 Axum
 async fn main() {
-    // 启动 Deno Worker
-    println!("Deno worker started.");
-
-    // 构建 Axum 路由
-    // let app = Router::new()
-    //     .route("/forward", post(handler));
 
     let app = Router::new().route("/akamaisrv/forward", post(handler));
     println!("Server running on http://127.0.0.1:3100");
