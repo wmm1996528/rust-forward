@@ -30,24 +30,28 @@ struct RunRequest {
 
 fn random_meu() -> Emulation {
 let c = vec![
-    Emulation::Chrome142,
-    Emulation::Chrome141,
-    Emulation::Chrome140,
-    Emulation::Chrome139,
-    Emulation::Chrome138,
-    Emulation::Chrome137,
-    Emulation::Chrome136,
-    Emulation::Chrome135,
-    Emulation::Chrome134,
-    Emulation::Chrome133,
-    Emulation::Chrome132,
-    Emulation::Chrome131,
-    Emulation::Chrome130,
-    Emulation::Chrome129,
-    Emulation::Chrome128,
-    Emulation::Chrome127,
-    Emulation::Chrome126,
-    Emulation::Chrome124,
+    Emulation::Firefox143,
+    Emulation::Firefox139,
+    Emulation::FirefoxAndroid135,
+    Emulation::Safari26,
+    // Emulation::Chrome142,
+    // Emulation::Chrome141,
+    // Emulation::Chrome140,
+    // Emulation::Chrome139,
+    // Emulation::Chrome138,
+    // Emulation::Chrome137,
+    // Emulation::Chrome136,
+    // Emulation::Chrome135,
+    // Emulation::Chrome134,
+    // Emulation::Chrome133,
+    // Emulation::Chrome132,
+    // Emulation::Chrome131,
+    // Emulation::Chrome130,
+    // Emulation::Chrome129,
+    // Emulation::Chrome128,
+    // Emulation::Chrome127,
+    // Emulation::Chrome126,
+    // Emulation::Chrome124,
     // Emulation::Chrome123,
     // Emulation::Chrome120,
     // Emulation::Chrome119,
@@ -79,6 +83,7 @@ pub fn create_client(proxy: String) -> (Client, Arc<Jar>, Emulation) {
         .cookie_provider(jar.clone())
         .redirect(Policy::default())
         .brotli(true)
+         .zstd(true).deflate(true)
         .timeout(Duration::from_secs(10))
         .build().unwrap(), jar, emu)
 }
@@ -90,32 +95,68 @@ async fn forward(payload: RunRequest) -> Result<serde_json::Value, anyhow::Error
     let hs = payload.headers.clone();
     println!("{:?}", hs);
     let (client,jar, emu) =  create_client(payload.proxy);
+    let emu = format!("{:?}", emu);
+
     let mut headers = header::HeaderMap::new();
-    hs.into_iter().for_each(|(k, v)| {
-        println!("{} {}", k,v);
+    // let hs = vec![
+    //     vec!["Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"],
+    //     vec!["Accept-Encoding", "gzip, deflate, br, zstd"],
+    //     vec!["Accept-Language", "en"],
+    //     vec!["Cache-Control", "max-age=0"],
+    //     vec!["Connection", "keep-alive"],
+    //     vec!["Content-Length", "375"],
+    //     vec!["Content-Type", "application/x-www-form-urlencoded"],
+    //     vec!["Host", "www.res.skymark.co.jp"],
+    //     vec!["Origin", "https://www.res.skymark.co.jp"],
+    //     vec!["Referer", "https://www.res.skymark.co.jp/reserve2/vacantseatref"],
+    //     vec!["Sec-Fetch-Dest", "document"],
+    //     vec!["Sec-Fetch-Mode", "navigate"],
+    //     vec!["Sec-Fetch-Site", "same-origin"],
+    //     vec!["Upgrade-Insecure-Requests", "1"],
+    //     vec!["User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"],
+    //     vec!["sec-ch-ua", "\"Chromium\";v=\"142\", \"Google Chrome\";v=\"142\", \"Not_A Brand\";v=\"99\""],
+    //     vec!["sec-ch-ua-mobile", "?0"],
+    //     vec!["sec-ch-ua-platform", "\"macOS\""],
+    // ];
+    hs.into_iter().for_each(|(k,v)| {
+
         headers.insert(
             header::HeaderName::from_static(k.to_lowercase().leak()),
             header::HeaderValue::from_str(v.as_str()).unwrap(),
         );
     });
+
     let resp = match payload.method.to_uppercase().as_str() {
         "GET" => client
             .get(url.clone())
             .headers(headers)
             .brotli(true)
             .send()
-            .await?,
+            .await,
         "POST" => client
             .post(url.clone())
             .headers(headers)
             .body(data.as_bytes())
             .brotli(true)
             .send()
-            .await?,
+            .await,
         _ => {
             let json = json!({
                 "code": -1,
                 "message": "方法不支持",
+            });
+            return Ok(json);
+        }
+    };
+    let resp = match resp {
+        Ok(r) => {
+            r
+        }
+        Err(err) => {
+            let json = json!({
+                "code": -1,
+                "message": err.to_string(),
+                "emu": emu,
             });
             return Ok(json);
         }
@@ -147,7 +188,6 @@ async fn forward(payload: RunRequest) -> Result<serde_json::Value, anyhow::Error
             (c[0..i].to_string(), c[i + 1..c.len()].to_string())
         })
         .collect::<HashMap<String, String>>();
-    let emu = format!("{:?}", emu);
     Ok(json!({
         "code": 0,
         "text": body,
